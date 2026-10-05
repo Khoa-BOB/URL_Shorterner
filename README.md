@@ -1,4 +1,35 @@
 # Design URL shortener
+
+## Run the Vue UI
+
+Requires Node.js 22.12+ and the .NET 10 SDK.
+
+Start the backend from the repository root:
+
+```sh
+dotnet run --project UrlShortener --launch-profile http
+```
+
+In development, the backend creates the SQLite tables on first startup.
+
+In a second terminal, start the frontend:
+
+```sh
+cd Frontend
+npm install
+npm run dev
+```
+
+Open the address printed by Vite (normally http://localhost:5173), paste an
+HTTP or HTTPS URL, and click **Shorten URL**. The resulting link points to
+the backend at http://localhost:5001; use **Copy link** to share it.
+
+The development proxy forwards `/url/shorten` to the backend. If its port
+changes, update `Frontend/vite.config.js`. For deployment, serve the frontend
+and API on the same origin or configure a reverse proxy for this endpoint.
+
+Run `npm test` for the API check and `npm run build` to generate `Frontend/dist`.
+
 [ByteByteGo_Guidance](https://bytebytego.com/courses/system-design-interview/design-a-url-shortener)
 
 ## Problem:
@@ -13,4 +44,3 @@
 
 1. Url shortening: To create a new short URL, a client sends a POST request, which contains one parameter
 2. Url redirecting: To redirect a short URL to the corresponding long URL, a lient send a GET request.
-

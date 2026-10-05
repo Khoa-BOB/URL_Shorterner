@@ -18,6 +18,12 @@ builder.Services.AddScoped<IUrlService, UrlService>();
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<UrlDbContext>().Database.EnsureCreatedAsync();
+}
+
 app.MapPost("/url/shorten", async (
     CreateShortUrlRequest body,
     IUrlService urls,
