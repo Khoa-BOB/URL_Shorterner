@@ -1,7 +1,7 @@
 # Design URL shortener
 
 ## UI
-![Web UI](docs/web-ui.png)
+![Web UI](docs/ui.png)
 
 ## Run the Vue UI
 
