@@ -1,5 +1,8 @@
 # Design URL shortener
 
+## UI
+![Web UI](docs/web-ui.png)
+
 ## Run the Vue UI
 
 Requires Node.js 22.12+ and the .NET 10 SDK.
