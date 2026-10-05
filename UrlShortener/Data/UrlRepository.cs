@@ -16,8 +16,30 @@ public class UrlRepository : IUrlRepository
         ArgumentNullException.ThrowIfNull(entity);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var existing = await _context.Urls.FirstOrDefaultAsync(
+            url => url.longUrl == entity.longUrl, cancellationToken);
+        if (existing is not null)
+            return existing;
+
         _context.Urls.Add(entity);
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException error) when (
+            error.InnerException is SqliteException { SqliteExtendedErrorCode: 2067 })
+        {
+            _context.Entry(entity).State = EntityState.Detached;
+            existing = await _context.Urls.FirstOrDefaultAsync(
+                url => url.longUrl == entity.longUrl, cancellationToken);
+            if (existing is not null)
+                return existing;
+
+            if (await AnyAsync(entity.shortCode, cancellationToken))
+                throw new DuplicateShortCodeException(entity.shortCode, error);
+
+            throw;
+        }
         return entity;
     }
 

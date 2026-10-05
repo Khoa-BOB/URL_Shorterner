@@ -21,5 +21,8 @@ public class UrlConfiguation: IEntityTypeConfiguration<Url>
         builder.HasIndex(u => u.shortCode) // To check the existence of short URL
             .IsUnique(); 
 
+        builder.HasIndex(u => u.longUrl)
+            .IsUnique();
+
     }
 }

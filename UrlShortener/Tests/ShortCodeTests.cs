@@ -18,6 +18,80 @@ public class ShortCodeTests
     }
 
     [Fact]
+    public async Task RepeatedLongUrlReturnsTheExistingLink()
+    {
+        var interceptor = new InsertInterceptor();
+        await using var database = await TestDatabase.CreateAsync(interceptor);
+        var service = new UrlService(new UrlRepository(database.Context));
+
+        var first = await service.CreateAsync("https://example.com/new");
+        var second = await service.CreateAsync("https://example.com/new");
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(first.shortCode, second.shortCode);
+        Assert.Equal(1, interceptor.Attempts);
+        Assert.Equal(2, await database.Context.Urls.CountAsync());
+    }
+
+    [Fact]
+    public async Task CompetingInsertReturnsTheWinningLink()
+    {
+        var interceptor = new InsertInterceptor();
+        await using var database = await TestDatabase.CreateAsync(interceptor);
+        var winningCode = new string('b', ShortCodeGenerator.ShortCodeLength);
+        interceptor.BeforeInsert = async () =>
+        {
+            await using var competingContext = database.CreateContext();
+            competingContext.Urls.Add(new Url("https://example.com/new", winningCode));
+            await competingContext.SaveChangesAsync();
+        };
+
+        var saved = await new UrlService(new UrlRepository(database.Context))
+            .CreateAsync("https://example.com/new");
+
+        Assert.True(saved.Id > 0);
+        Assert.Equal(winningCode, saved.shortCode);
+        Assert.Equal(saved.Id, (await database.Context.Urls.SingleAsync(
+            url => url.longUrl == "https://example.com/new")).Id);
+        Assert.Equal(1, interceptor.Attempts);
+        Assert.Equal(2, await database.Context.Urls.CountAsync());
+        Assert.DoesNotContain(database.Context.ChangeTracker.Entries<Url>(),
+            entry => entry.State == EntityState.Added);
+    }
+
+    [Fact]
+    public async Task DatabaseRejectsDuplicateLongUrlsDirectly()
+    {
+        await using var database = await TestDatabase.CreateAsync(new InsertInterceptor());
+        database.Context.Urls.Add(new Url("https://example.com/original",
+            new string('b', ShortCodeGenerator.ShortCodeLength)));
+
+        var error = await Assert.ThrowsAsync<DbUpdateException>(() => database.Context.SaveChangesAsync());
+
+        Assert.Equal(2067, Assert.IsType<SqliteException>(error.InnerException).SqliteExtendedErrorCode);
+        Assert.Equal(1, await database.Context.Urls.CountAsync());
+    }
+
+    [Fact]
+    public async Task DistinctLongUrlStringsHaveDistinctLinks()
+    {
+        await using var database = await TestDatabase.CreateAsync(new InsertInterceptor());
+        var service = new UrlService(new UrlRepository(database.Context));
+        string[] urls = ["https://example.com/path", "https://example.com/Path",
+            "https://example.com/path?q=1", "https://example.com/path?q=2"];
+        var ids = new HashSet<int>();
+
+        foreach (var longUrl in urls)
+        {
+            var saved = await service.CreateAsync(longUrl);
+            Assert.Equal(longUrl, saved.longUrl);
+            Assert.True(ids.Add(saved.Id));
+        }
+
+        Assert.Equal(5, await database.Context.Urls.CountAsync());
+    }
+
+    [Fact]
     public async Task RepositoryPersistsTheSuppliedShortCode()
     {
         await using var database = await TestDatabase.CreateAsync(new InsertInterceptor());
@@ -115,25 +189,31 @@ public class ShortCodeTests
         : SaveChangesInterceptor
     {
         public int Attempts { get; private set; }
+        public Func<Task>? BeforeInsert { get; set; }
 
-        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData, InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
             Attempts++;
+            if (BeforeInsert is not null)
+                await BeforeInsert();
             var entry = eventData.Context!.ChangeTracker.Entries<Url>()
                 .Single(e => e.State == EntityState.Added);
             if (Attempts <= collisions)
                 entry.Property(u => u.shortCode).CurrentValue = new string('a', ShortCodeGenerator.ShortCodeLength);
             if (invalidateLongUrl)
                 entry.Property(u => u.longUrl).CurrentValue = null!;
-            return ValueTask.FromResult(result);
+            return result;
         }
     }
 
     private sealed class TestDatabase(SqliteConnection connection, UrlDbContext context) : IAsyncDisposable
     {
         public UrlDbContext Context => context;
+
+        public UrlDbContext CreateContext() => new(
+            new DbContextOptionsBuilder<UrlDbContext>().UseSqlite(connection).Options);
 
         public static async Task<TestDatabase> CreateAsync(SaveChangesInterceptor interceptor)
         {
